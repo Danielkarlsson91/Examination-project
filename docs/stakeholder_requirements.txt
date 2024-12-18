@@ -1,0 +1,15 @@
+REQ-001: The system shall indicate the servers operational status to the user using a visual indicator.
+REQ-002: The client application shall allow the user to:
+    - Configure connection settings before starting communication.
+    - Establish and terminate communication sessions.
+    - View sensor data retrieved from the server.
+    - Log user actions and system responses, with an option to clear the log.
+
+REQ-003: Users shall be able to start and stop the connection between the client and server easily.
+REQ-004: The client interface shall provide clear feedback on the communication sessions status.
+REQ-005: All communication between the client and server shall be secure, utilizing robust encryption and authentication mechanisms.
+REQ-006: Only one active communication session shall be permitted at any given time to maintain system integrity.
+REQ-007: Communication sessions shall time out after a defined period of inactivity to enhance security.
+REQ-008: The system shall attempt to synchronize session states upon initialization.
+REQ-009: The system shall clearly show if the connection is active or inactive.
+REQ-010: If there are errors, the system shall display simple and clear error messages.
