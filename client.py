@@ -1,57 +1,77 @@
+
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QPushButton, QTextEdit, QVBoxLayout, QHBoxLayout, QWidget, QLabel
+)
 import sys
-from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton
 
-class MainWindow(QMainWindow):
+class ClientGui(QMainWindow):
     def __init__(self):
-        super().__init__() 
+        super().__init__()
+        self.setWindowTitle("Client")
+        self.setFixedSize(500, 400)  # fixed size 
 
-        self.setWindowTitle("My App")
+        # Main layout
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        self.main_layout = QVBoxLayout()
+        self.main_layout.setContentsMargins(10, 10, 10, 10)  
+        self.main_layout.setSpacing(10)  # Add spacing between widgets
 
-        # Create a central widget to hold multiple buttons
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
+        self.button_layout = QHBoxLayout()
 
-        # Create a vertical layout to arrange the buttons
-        layout = QVBoxLayout()
-        central_widget.setLayout(layout)
+        # Buttons
+        self.close_session_button = QPushButton("Close Session")
+        self.get_temp_button = QPushButton("Get Temperature")
+        self.toggle_relay_button = QPushButton("Toggle Relay")
+        self.clear_button = QLabel("<a href='#'>Clear</a>")
+        self.clear_button.setStyleSheet("color: blue; text-decoration: underline;")
+        self.clear_button.setOpenExternalLinks(False)
 
-        # Create and add the first button
-        button1 = QPushButton("Press me!")
-        button1.setCheckable(True)
-        button1.clicked.connect(self.the_button_was_clicked)
-        self.setCentralWidget(button1)
+        #  buttons to horizontal layout
+        self.button_layout.addWidget(self.close_session_button)
+        self.button_layout.addWidget(self.get_temp_button)
+        self.button_layout.addWidget(self.toggle_relay_button)
+        self.button_layout.addStretch()  # Add space to right
+        self.button_layout.addWidget(self.clear_button)
 
-        button2 = QPushButton("Click me too!")
-        button2.setCheckable(True)
-        button2.clicked.connect(self.the_button2_was_clicked)
-        layout.addWidget(button2)
+        # Text area
+        self.log_area = QTextEdit()
+        self.log_area.setReadOnly(True)
+        self.log_area.setStyleSheet("background-color: black; color: white; font-size: 12px;")  
 
-        # Create the third button
-        button3 = QPushButton("Another button!")
-        button3.setCheckable(True)
-        button3.clicked.connect(self.the_button3_was_clicked)
-        layout.addWidget(button3)
+        # Add layouts to the main 
+        self.main_layout.addLayout(self.button_layout)
+        self.main_layout.addWidget(self.log_area)
 
-    # Define click handler for the first button
-    def the_button_was_clicked(self):
-        print("Clicked!") 
+        self.central_widget.setLayout(self.main_layout)
 
-    # Define click handler for the second button
-    def the_button2_was_clicked(self):
-        print("Button 2 was clicked!")
+        # Connect button clicks 
+        self.close_session_button.clicked.connect(self.close_session)
+        self.get_temp_button.clicked.connect(self.get_temperature)
+        self.toggle_relay_button.clicked.connect(self.toggle_relay)
+        self.clear_button.linkActivated.connect(self.clear_log)
 
-    # Define click handler for the third button
-    def the_button3_was_clicked(self):
-        print("Button 3 was clicked!")
+    # Button functions
+    def close_session(self):
+        self.log_area.append("Establish Session: Done")
 
-# Create an instance of QApplication
-app = QApplication(sys.argv)
+    def get_temperature(self):
+        self.log_area.append("Temperature: Here is my temp")
 
-# Create an instance of the main window
-window = MainWindow()
+    def toggle_relay(self):
+        current_state = "On" if "Off" in self.log_area.toPlainText() else "Off"
+        self.log_area.append(f"Relay State: {current_state}")
 
-# Show the main window
-window.show()
+    def clear_log(self):
+        self.log_area.clear()
 
-# Start the application's event loop
-app.exec()
+
+def main():
+    app = QApplication(sys.argv)
+    window = ClientGui()
+    window.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main() 
