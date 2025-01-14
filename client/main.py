@@ -1,14 +1,28 @@
-
+import sys
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QTextEdit, QVBoxLayout, QHBoxLayout, QWidget, QLabel
 )
-import sys
+from PyQt6.QtCore import QThread, pyqtSignal
+from session import Session
+
+class ToggleRelayThread(QThread):
+    result = pyqtSignal(int, str)
+
+    def __init__(self, session):
+        super().__init__()
+        self.session = session
+
+    def run(self):
+        status, message = self.session.toggle_relay()
+        self.result.emit(status, message)
 
 class ClientGui(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Client")
         self.setFixedSize(500, 400)  # fixed size 
+
+        self.session = Session("/dev/ttyUSB0")
 
         # Main layout
         self.central_widget = QWidget()
@@ -24,7 +38,7 @@ class ClientGui(QMainWindow):
         self.get_temp_button = QPushButton("Get Temperature")
         self.toggle_relay_button = QPushButton("Toggle Relay")
         self.clear_button = QLabel("<a href='#'>Clear</a>")
-        self.clear_button.setStyleSheet("color: blue; text-decoration: underline;")
+        self.clear_button.setStyleSheet("Color: blue; text-decoration: underline;")
         self.clear_button.setOpenExternalLinks(False)
 
         #  buttons to horizontal layout
@@ -37,7 +51,7 @@ class ClientGui(QMainWindow):
         # Text area
         self.log_area = QTextEdit()
         self.log_area.setReadOnly(True)
-        self.log_area.setStyleSheet("background-color: black; color: white; font-size: 12px;")  
+        self.log_area.setStyleSheet("Background-color: black; color: white; font-size: 12px;")  
 
         # Add layouts to the main 
         self.main_layout.addLayout(self.button_layout)
@@ -59,12 +73,15 @@ class ClientGui(QMainWindow):
         self.log_area.append("Temperature: Here is my temp")
 
     def toggle_relay(self):
-        current_state = "On" if "Off" in self.log_area.toPlainText() else "Off"
-        self.log_area.append(f"Relay State: {current_state}")
+        self.toggle_thread = ToggleRelayThread(self.session)
+        self.toggle_thread.result.connect(self.display_message)
+        self.toggle_thread.start()
+
+    def display_message(self, status, message):
+        self.log_area.append(message)
 
     def clear_log(self):
         self.log_area.clear()
-
 
 def main():
     app = QApplication(sys.argv)
