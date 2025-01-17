@@ -1,20 +1,31 @@
 #include "communication.h"
 #include "session.h"
 #include <Arduino.h>
+#include <mbedtls/md.h>
+#include <mbedtls/pk.h>
+#include <mbedtls/rsa.h>
+#include <mbedtls/aes.h>
+#include <mbedtls/entropy.h>
+#include <mbedtls/ctr_drbg.h>
 
-constexpr int KEEP_ALIVE{60000};
-constexpr int AES_BLOCK_SIZE{16};
+constexpr int AES_SIZE{32};       /**< AES key size (256 bits) */
+constexpr int AES_BLOCK_SIZE{16}; /**< AES block size (128 bits) */
+constexpr int RSA_SIZE{256};      /**< RSA key size (2048 bits) */
+constexpr int DER_SIZE{294};      /**< Maximum DER encoding size */
+constexpr int HASH_SIZE{32};      /**< Hash size for HMAC (256 bits) */
+constexpr int EXPONENT{65537};
+constexpr int SESSION_TIMEOUT{3000}; /**< Session timeout in milliseconds */
 
-static mbedtls_aes_context aes_ctx;
-static mbedtls_nd_context_t hmac_ctx;
-static mbedtls_pk_context client_ctx;
-static mbedtls_pk_context server_ctx;
-static mbedtls_entropy_context entropy;
-static mbedtls_ctr_drbg_context ctr_drbg;
+static mbedtls_aes_context aes_ctx;       /**< AES Context */
+static mbedtls_md_context_t hmac_ctx;     /**< HMAC Context */
+static mbedtls_pk_context client_key_ctx; /**< Client Public Key Context */
+static mbedtls_pk_context server_key_ctx; /**< Server Public Key Context */
+static mbedtls_entropy_context entropy;   /**< Entropy Context */
+static mbedtls_ctr_drbg_context ctr_drbg; /**< CTR DRBG Context */
 
-static uint32_t accessed{0};
-static uint64_t session_id{0};
-static uint8_t aes_key[AES_SIZE]{0};
+static uint32_t accessed = 0;
+static uint64_t session_id = 0;
+static uint8_t aes_key[AES_SIZE] = {0};
 static uint8_t enc_lv[AES_BLOCK_SIZE]{0};
 static uint8_t dec_lv[AES_BLOCK_SIZE]{0};
 static uint8_t buffer[DER_SIZE + RSA_SIZE] = {0};

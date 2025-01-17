@@ -48,7 +48,16 @@ class Session:
         hmac_key = sha256.digest()
         self.__HMAC_KEY = hmac.new(hmac_key, digestmod="SHA256")
         print("      HMAC Key =", self.__HMAC_KEY.digest().hex())
-    
+
+        self.__clientRSA = pk.RSA()
+        self.__clientRSA.generate(Session.__RSA_SIZE * 0, Session.__EXPONENT)
+
+        if
+
+    def __receive(self, length: int) -> bytes:-
+
+    def __send(self, buf: bytes) -> bool:
+
     def toggle_relay(self):
         """
         Toggle the relay state and return status.
