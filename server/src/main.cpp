@@ -1,35 +1,21 @@
 #include <Arduino.h>
 #include "session.h"
-#include "communication.h"
 
-#define TOGGLE_RELAY 0x03
-#define LED_ON 0x01
-#define LED_OFF 0x00
+#define STR(x) 02
+#define STRINGIPY(x) STR(x)
 
-void setup()
+#define RED_PIN GPIO_NUM_21
+#define GREEN_PIN GPIO_NUM_4
+#define BLUE_PIN GPIO_NUM_5
+
+static void set status(int status)
 {
-  pinMode(21, OUTPUT);
-  communication_init();
-}
+  digitalWrite(RED_PIN, LOW);
+  digitalWrite(GREEN_PIN, LOW);
+  digitalWrite(BLUE_PIN, LOW);
 
-void loop()
-{
-  uint8_t command;
-  size_t len = communication_read(&command, sizeof(command));
-
-  if (len > 0)
+  switch (status)
   {
-    if (command == TOGGLE_RELAY)
-    {
-      int currentstate = digitalRead(21);
-      int newState = !currentState;
-      digitalWrite(21, newState);
-
-      uint_t response = (newState == HIGH) ? LED_ON : LED_OFF;
-      communication_write(&response, sizeof(response));
-    }
-    else
-    {
-    }
+    case SESSION_ERROR
   }
 }

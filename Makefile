@@ -1,4 +1,3 @@
-
 SPEED = 115200
 PORT = /dev/ttyUSB0
 
