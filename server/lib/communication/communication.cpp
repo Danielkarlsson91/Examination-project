@@ -1,25 +1,30 @@
 #include "communication.h"
 #include <Arduino.h>
 
-#define BAUDRATE 115200
-
-bool communication_init(void)
+bool communication_init(const char *comparam)
 {
-    Serial.begin(BAUDRATE);
-    return Serial ? true : false;
-    ;
+    String param(comparam);
+
+    Serial.begin(param.toInt());
+
+    return Serial;
 }
 
-bool communication_write(const uint8_t *data, size_t data_len)
+bool communication_write(const uint8_t *data, size_t dlen)
 {
-    return (data_len == Serial.write(data, data_len));
+    return (dlen == Serial.write(data, dlen));
 }
 
-size_t communication_read(uint8_t *buf, size_t buf_len)
+size_t communication_read(uint8_t *buf, size_t blen)
 {
     while (0 == Serial.available())
     {
         ;
     }
-    return Serial.readBytes(buf, buf_len);
+    return Serial.readBytes(buf, blen);
+}
+
+void communication_close(void)
+{
+    Serial.end();
 }
