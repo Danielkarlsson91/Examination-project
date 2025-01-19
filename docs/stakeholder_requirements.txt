@@ -1,17 +1,19 @@
-// Stakeholder Requirements for Server and Client Application
+// Stakeholder requirements for the server
 
-REQ-001: The system shall indicate the servers operational status to the user using a visual indicator.
-REQ-002: The client application shall allow the user to:
-    - Configure connection settings before starting communication.
-    - Establish and terminate communication sessions.
-    - View sensor data retrieved from the server.
-    - Log user actions and system responses, with an option to clear the log.
+REQ-001: An LED should show the servers status, which can also be used for debugging during development.
+REQ-002: The server must be able to communicate with the client via a serial connection.
+REQ-003: Session management: 
+        - Only one active session should be managed at a time. 
+        - Sessions should be terminated automatically if no activity occurs for a certain amount of time.
+REQ-004: Communication between client and server must be secure and protected against unauthorized access.
 
-REQ-003: Users shall be able to start and stop the connection between the client and server easily.
-REQ-004: The client interface shall provide clear feedback on the communication sessions status.
-REQ-005: All communication between the client and server shall be secure, utilizing robust encryption and authentication mechanisms.
-REQ-006: Only one active communication session shall be permitted at any given time to maintain system integrity.
-REQ-007: Communication sessions shall time out after a defined period of inactivity to enhance security.
-REQ-008: The system shall attempt to synchronize session states upon initialization.
-REQ-009: The system shall clearly show if the connection is active or inactive.
-REQ-010: If there are errors, the system shall display simple and clear error messages.
+// Stakeholder requirements for the client
+
+REQ-001: The client shall provide a graphical user interface (GUI) for easy interaction.
+REQ-002: The user must be able to manage connection and functions directly via the interface.
+REQ-003: The user must be able to: 
+        - Establish and terminate a connection to the server. 
+        - Get access to information, such as temperature. 
+        - Control functions such as relays via the interface. 
+        - Follow logs for system status and actions.
+REQ-004: All communications must be protected by modern security methods to guarantee data integrity and confidentiality.
