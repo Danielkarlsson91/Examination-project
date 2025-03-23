@@ -1,19 +1,90 @@
 // Stakeholder requirements for the server
 
-REQ-001: An LED should show the servers status, which can also be used for debugging during development.
-REQ-002: The server must be able to communicate with the client via a serial connection.
-REQ-003: Session management: 
-        - Only one active session should be managed at a time. 
-        - Sessions should be terminated automatically if no activity occurs for a certain amount of time.
-REQ-004: Communication between client and server must be secure and protected against unauthorized access.
+*Server Requirements
 
-// Stakeholder requirements for the client
+REQ-001: Server Status Indication
 
-REQ-001: The client shall provide a graphical user interface (GUI) for easy interaction.
-REQ-002: The user must be able to manage connection and functions directly via the interface.
-REQ-003: The user must be able to: 
-        - Establish and terminate a connection to the server. 
-        - Get access to information, such as temperature. 
-        - Control functions such as relays via the interface. 
-        - Follow logs for system status and actions.
-REQ-004: All communications must be protected by modern security methods to guarantee data integrity and confidentiality.
+- The server must include an LED to display its current status
+- The LED shall be usable for debugging purposes during development
+- LED status should clearly communicate system state (e.g., connected, idle, error)
+
+REQ-002: Communication Infrastructure
+- The server must establish communication with the client via serial connection
+- Support standard baud rates with configurable communication parameters
+- Ensure robust and reliable data transmission
+
+REQ-003: Session Management
+
+- Implement a secure session management system
+- Allow only one active session at a time
+- Automatically terminate sessions after a predefined period of inactivity
+- Provide mechanisms for session establishment and termination
+
+REQ-004: Communication Security
+- Secure all communication between client and server
+- Implement protection against unauthorized access
+- Use modern cryptographic methods to ensure:
+
+- Data integrity
+- Data confidentiality
+- Secure key exchange
+- Protect against potential security vulnerabilities
+
+* Client Requirements
+REQ-001: Graphical User Interface (GUI)
+- Develop a user-friendly graphical interface using PyQt6
+- Provide intuitive controls for system interaction
+- Ensure responsive and clear user experience
+
+REQ-002: User Interaction Capabilities
+- Enable users to:
+- Establish and terminate server connections
+- Retrieve system information (e.g., temperature)
+- Control system functions (e.g., relay toggling)
+- Provide clear feedback for all user actions
+
+REQ-003: Information Access
+- Allow retrieval of:
+- System temperature
+- Relay state
+- Session status
+- Present information clearly and accurately
+
+REQ-004: Logging and Transparency
+- Implement comprehensive logging system
+- Record:
+
+System events
+User actions
+Communication status
+
+
+Provide a clear log interface for user review
+
+REQ-005: Security Compliance
+
+Implement all client-side security measures
+Use identical cryptographic protocols as the server
+Ensure end-to-end encrypted communication
+Protect user data and system integrity
+
+Additional Considerations
+
+Platform Compatibility
+
+Develop for Linux environment
+Ensure consistent performance across different systems
+
+
+Performance Requirements
+
+Minimize communication latency
+Optimize resource utilization
+Provide quick response times for user interactions
+
+
+Error Handling
+
+Implement robust error detection mechanisms
+Provide clear, user-friendly error messages
+Develop graceful error recovery processes

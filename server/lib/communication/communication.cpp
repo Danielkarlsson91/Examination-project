@@ -1,11 +1,9 @@
 #include "communication.h"
 #include <Arduino.h>
 
-bool communication_init(const char *comparam)
+bool communication_init(const int comparam)
 {
-    String param(comparam);
-
-    Serial.begin(param.toInt());
+    Serial.begin(comparam);
 
     return Serial;
 }

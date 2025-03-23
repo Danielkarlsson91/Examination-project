@@ -36,23 +36,33 @@ void setup()
   pinMode(RED_PIN, OUTPUT);
   pinMode(GREEN_PIN, OUTPUT);
   pinMode(BLUE_PIN, OUTPUT);
+  pinMode(21, OUTPUT);
+
+  digitalWrite(21, LOW);
+  delay(1000);
+  digitalWrite(21, HIGH);
+  delay(1000);
+  digitalWrite(21, LOW);
 
   set_status(SESSION_OKAY);
 
-  if (SESSION_OKAY != session_init(STRINGIPY()))
+  if (SESSION_OKAY != session_init(115200))
   {
     set_status(SESSION_ERROR);
 
     while (1)
     {
-      ;
+      digitalWrite(21, HIGH);
+      delay(200);
+      digitalWrite(21, LOW);
+      delay(200);
     }
   }
 }
 
 void loop()
 {
-  int request = session_request();
+  /*int request = session_request();
 
   switch (request)
   {
@@ -69,16 +79,19 @@ void loop()
     break;
 
   case SESSION_TOGGLE_RELAY:
+  {
     static uint8_t state = LOW;
     state = (state == LOW) ? HIGH : LOW;
     digitalWrite(GPIO_NUM_32, state);
-    request = (state == digitalRead(GPIO_NUM_32)) ? session_send_relay_state;
-
+    request = (state == digitalRead(GPIO_NUM_32)) ? session_send_relay_state(state) : SESSION_ERROR;
     break;
+  }
 
   default:
     break;
   }
 
   set_status(request);
+  */
+  session_establish();
 }

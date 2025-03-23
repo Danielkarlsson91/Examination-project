@@ -2,6 +2,8 @@
 from communication import Communication
 # Import cryptographic functions from mbedtls library
 from mbedtls import pk, hmac, hashlib, cipher
+import time
+import struct
 
 class Session:
     # Define RSA key size constant (256 bytes = 2048 bits)
@@ -33,30 +35,244 @@ class Session:
         """
         # Create Communication object for serial connection
         self.communication = Communication(port)
-        # Initialize relay state tracking variable
-        self.relay_state = False
+
+        # Check if the communication port is open
+        if not self.communication.open():
+            raise Exception("Failed to connect")
+        
         # Initialize session ID
         self.__SESSION_ID = bytes([0] * 8)  # Create 8 zero bytes
 
-        # Check if the communication port is open
-        if not self.communication.communication_open():
-            raise Exception("Failed to connect")
-        
         # Initialize HMAC key
-        sha256 = hashlib.sha256()
-        sha256.update(self.__SECRET_KEY)
-        hmac_key = sha256.digest()
-        self.__HMAC_KEY = hmac.new(hmac_key, digestmod="SHA256")
-        print("      HMAC Key =", self.__HMAC_KEY.digest().hex())
+        self.__hmac = hashlib.sha256()
+        self.__hmac.update(self.__SECRET_KEY)
+        self.__hmac = self.__hmac.digest()
+        self.__hmac = hmac.new(self.__hmac, digestmod="SHA256")
 
+        # Initialize RSA key pair and exchange keys
+            
+        # Skapa temp key
         self.__clientRSA = pk.RSA()
-        self.__clientRSA.generate(Session.__RSA_SIZE * 0, Session.__EXPONENT)
+        self.__clientRSA.generate(self.__RSA_SIZE * 8, self.__EXPONENT)
+        buffer = self.__clientRSA.export_public_key()
+        
+        # Write public temp key
+        if not self.__write(buffer):
+            raise Exception("1) Failed to exchange keys")
 
-        if
+        # Read server public key <-- spara den
+        buffer = self.__read(self.__RSA_SIZE * 2)
+        if 0 == len(buffer):
+            raise Exception("2) Failed to exchange keys")
+        print("read1")
+        # Decrypt server public key med temp private key
+        self.__serverRSA  = self.__clientRSA.decrypt(buffer[0 : self.__RSA_SIZE])
+        self.__serverRSA += self.__clientRSA.decrypt(buffer[self.__RSA_SIZE : self.__RSA_SIZE * 2])
+        self.__serverRSA = pk.RSA().from_DER(self.__serverRSA)
 
-    def __receive(self, length: int) -> bytes:-
+        # create a new pair of keys
+        del self.__clientRSA
+        self.__clientRSA = pk.RSA()
+        self.__clientRSA.generate(self.__RSA_SIZE * 8, self.__EXPONENT)
+        buffer = self.__clientRSA.export_public_key()
+
+        buffer = self.__clientRSA.export_public_key() + self.__clientRSA.sign(Session.__SECRET_KEY, "SHA256")
+        buffer = self.__serverRSA.encrypt(buffer[0:184]) + self.__serverRSA.encrypt(buffer[184:368]) + self.__serverRSA.encrypt(buffer[368:550])
+
+        if not self.__write(buffer):
+            raise Exception("3) Failed to exchange keys")
+        print("Write2")
+        buffer = self.__read(self.__RSA_SIZE)
+        if 0 == len(buffer):
+            raise Exception("4) Failed to exchange keys")
+        
+        if b"DONE" != self.__clientRSA.decrypt(buffer):
+            raise Exception("5) Failed to exchange keys")
+        
+        print("Key exchange")
+
+    def __read(self, size) -> bytes:
+        """
+        Read data and verify HMAC
+        
+        Args:
+            size: Number of bytes to read
+            
+        Returns:
+            Verified data
+        """
+
+        buffer = b''
+        try:
+            # Read data with HMAC (data + 32 bytes for HMAC)
+            buffer = self.communication.receive(size + self.__hmac.digest_size)
+            
+            if len(buffer) > self.__hmac.digest_size:            
+                # Separate data and HMAC
+                received_hmac = buffer[size:size+self.__hmac.digest_size]
+                
+                # Calculate HMAC for verification
+                self.__hmac.update(buffer[0:size])
+                calculated_hmac = self.__hmac.digest()
+                
+                # Verify HMAC
+                if calculated_hmac != received_hmac:
+                    buffer = b''
+            else:
+                buffer = b''
+            
+        except Exception as e:
+            print(f"Read error: {e}")
+            pass
+
+        return buffer
+
+    def __write(self, msg) -> bool:
+        """
+        Write data with HMAC protection
+        
+        Args:
+            msg: Data to send
+        """
+        self.__hmac.update(msg)
+        print(len(msg))
+        msg += self.__hmac.digest()
+        print(len(msg))
+        print(msg.hex())
+        return self.communication.send(msg)
+
+
+    def __start_session(self):
+        """
+        Establish a new session with the server
+        """
+        try:
+            # Generate session ID (8 random bytes)
+            import secrets
+            self.__SESSION_ID = secrets.token_bytes(8)
+            
+            # Record session start time
+            self.__session_start_time = time.time()
+            
+            # Send session ID to server
+            self.__send(self.__SESSION_ID)
+            
+            # Verify server response
+            response = self.__receive(1)
+            if response != b'\x01':
+                raise Exception("Session establishment failed")
+            
+            print("Session established successfully")
+        except Exception as e:
+            print(f"Session establishment error: {e}")
+            raise
+
+    def __check_session_validity(self):
+        """
+        Check if the current session is still valid
+        """
+        if not self.__session_start_time:
+            return False
+        
+        # Check if session has expired
+        current_time = time.time()
+        if current_time - self.__session_start_time > self.__SESSION_TIMEOUT:
+            return False
+        
+        return True
+
+    def __receive(self, length: int) -> bytes:
+        """
+        Receive encrypted data from the server
+        
+        Args:
+            length (int): Number of bytes to receive
+        
+        Returns:
+            bytes: Decrypted received data
+        """
+        if not self.__check_session_validity():
+            raise Exception("Session expired")
+        
+        try:
+            # Receive encrypted data
+            encrypted_data = self.communication.communication_read(length + 32)  # Include HMAC
+            
+            # Separate HMAC and encrypted data
+            received_hmac = encrypted_data[-32:]
+            encrypted_payload = encrypted_data[:-32]
+            
+            # Verify HMAC
+            calculated_hmac = self.__HMAC_KEY.copy()
+            calculated_hmac.update(encrypted_payload)
+            if calculated_hmac.digest() != received_hmac:
+                raise Exception("HMAC verification failed")
+            
+            # Decrypt payload (use AES decryption)
+            aes = cipher.AES.new(self.__HMAC_KEY.digest()[:16], cipher.MODE_ECB)
+            decrypted_data = aes.decrypt(encrypted_payload)
+            
+            return decrypted_data[:length]
+        
+        except Exception as e:
+            print(f"Receive error: {e}")
+            return b''
 
     def __send(self, buf: bytes) -> bool:
+        """
+        Send encrypted data to the server
+        
+        Args:
+            buf (bytes): Data to send
+        
+        Returns:
+            bool: True if sending was successful, False otherwise
+        """
+        if not self.__check_session_validity():
+            raise Exception("Session expired")
+        
+        try:
+            # Pad data to AES block size (16 bytes)
+            pad_length = 16 - (len(buf) % 16)
+            padded_data = buf + bytes([pad_length] * pad_length)
+            
+            # Encrypt payload
+            aes = cipher.AES.new(self.__HMAC_KEY.digest()[:16], cipher.MODE_ECB)
+            encrypted_payload = aes.encrypt(padded_data)
+            
+            # Calculate HMAC
+            hmac_calc = self.__HMAC_KEY.copy()
+            hmac_calc.update(encrypted_payload)
+            hmac_digest = hmac_calc.digest()
+            
+            # Combine encrypted payload and HMAC
+            full_message = encrypted_payload + hmac_digest
+            
+            # Send encrypted message
+            self.communication.communication_send(full_message)
+            return True
+        
+        except Exception as e:
+            print(f"Send error: {e}")
+            return False
+
+    def close_session(self):
+        """
+        Close the current session
+        """
+        try:
+            # Send close command
+            command = self.__CLOSE.to_bytes(1, 'big')
+            self.__send(command)
+            
+            # Reset session variables
+            self.__SESSION_ID = bytes([0] * 8)
+            self.__session_start_time = None
+            
+            return self.STATUS_OKAY, "Session Closed"
+        
+        except Exception as e:
+            return self.STATUS_ERROR, f"Error closing session: {e}"
 
     def toggle_relay(self):
         """
@@ -65,13 +281,17 @@ class Session:
             tuple: (status_code, message)
         """
         try:
+            # Check session validity
+            if not self.__check_session_validity():
+                return self.STATUS_EXPIRED, "Session Expired"
+            
             # Convert toggle relay command to bytes
             command = self.__TOGGLE_RELAY.to_bytes(1, 'big')
-            # Send command to device
-            self.communication.communication_send(command)
+            # Send encrypted command to device
+            self.__send(command)
             
-            # Read response from device
-            response = self.communication.communication_read(1)
+            # Read encrypted response from device
+            response = self.__receive(1)
             
             # Process response based on received byte
             if response == b'\x01':  # If device returns 0x01
@@ -95,16 +315,20 @@ class Session:
             tuple: (status_code, message)
         """
         try:
+            # Check session validity
+            if not self.__check_session_validity():
+                return self.STATUS_EXPIRED, "Session Expired"
+            
             # Convert get temperature command to bytes
             command = self.__GET_TEMP.to_bytes(1, 'big')
-            # Send command to device
-            self.communication.communication_send(command)
+            # Send encrypted command to device
+            self.__send(command)
 
-            # Read 4 bytes (float temperature)
-            response = self.communication.communication_read(4)
+            # Read encrypted 4 bytes (float temperature)
+            response = self.__receive(4)
             if len(response) == 4:
                 # Convert bytes to float
-                temperature = float.fromhex(response.hex())
+                temperature = struct.unpack('!f', response)[0]
                 return self.STATUS_OKAY, f"Temperature: {temperature:.2f} °C"
             else:
                 # Return error if the response length is unexpected
