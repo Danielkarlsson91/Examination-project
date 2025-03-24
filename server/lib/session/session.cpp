@@ -38,11 +38,9 @@ static uint8_t aes_key[AES_SIZE] = {0};
 static uint8_t enc_iv[AES_BLOCK_SIZE]{0};
 static uint8_t dec_iv[AES_BLOCK_SIZE]{0};
 static uint8_t buffer[DER_SIZE + RSA_SIZE] = {0};
-static const uint8_t secret_key[HASH_SIZE] = {
-    0x29, 0x49, 0xde, 0xc2, 0x3e, 0x1e, 0x34, 0xb5,
-    0x2d, 0x22, 0xba, 0x4c, 0x34, 0x23, 0x3a, 0x9d,
-    0x3f, 0xe2, 0x97, 0x14, 0x24, 0x62, 0x81, 0x0c,
-    0x86, 0xb1, 0xf6, 0x92, 0x54, 0xd6};
+static const uint8_t secret_key[HASH_SIZE] = {0x29, 0x49, 0xde, 0xc2, 0x3e, 0x1e, 0x34, 0xb5, 0x2d, 0x22, 0xb5,
+                                              0xba, 0x4c, 0x34, 0x23, 0x3a, 0x9d, 0x3f, 0xe2, 0x97, 0x14, 0xbe,
+                                              0x24, 0x62, 0x81, 0x0c, 0x86, 0xb1, 0xf6, 0x92, 0x54, 0xd6};
 
 // Simple write with HMAC for key exchange
 static bool client_write(uint8_t *buf, size_t dlen)
@@ -69,20 +67,6 @@ static size_t client_read(uint8_t *buf, size_t blen)
         mbedtls_md_hmac_update(&hmac_ctx, buf, length);
         mbedtls_md_hmac_finish(&hmac_ctx, hmac);
 
-        delay(5000);
-        Serial.printf("Hmac\n");
-        for (int i = 0; i < HASH_SIZE; i++)
-        {
-            Serial.printf("%.2X ", hmac[i]);
-            Serial.printf("-");
-        }
-        printf("\n");
-
-        for (int i = 0; i < HASH_SIZE; i++)
-        {
-            Serial.printf("%.2X ", buf[i + length]);
-            Serial.printf("-");
-        }
         if (0 != memcmp(buf + length, hmac, HASH_SIZE))
         {
             length = 0;
@@ -141,13 +125,16 @@ int session_init(int comparam)
     return status;
 }
 
-static bool exchange_public_keys(void)
+static int exchange_public_keys(void)
 {
     size_t len, lenght;
-    bool status = false;
+    int status = SESSION_ERROR;
     uint8_t cipher[3 * RSA_SIZE + HASH_SIZE] = {0};
+
     session_id = 0;
+
     mbedtls_pk_init(&client_key_ctx);
+
     if (0 == mbedtls_pk_parse_public_key(&client_key_ctx, buffer, DER_SIZE))
     {
         if (MBEDTLS_PK_RSA == mbedtls_pk_get_type(&client_key_ctx))
@@ -156,27 +143,34 @@ static bool exchange_public_keys(void)
             {
                 if (0 == mbedtls_pk_encrypt(&client_key_ctx, buffer, DER_SIZE / 2, cipher, &len, RSA_SIZE, mbedtls_ctr_drbg_random, &ctr_drbg))
                 {
-                    status = (0 == mbedtls_pk_encrypt(&client_key_ctx, buffer + DER_SIZE / 2, DER_SIZE / 2, cipher + RSA_SIZE, &len, RSA_SIZE, mbedtls_ctr_drbg_random, &ctr_drbg));
+                    if (0 == mbedtls_pk_encrypt(&client_key_ctx, buffer + DER_SIZE / 2, DER_SIZE / 2, cipher + RSA_SIZE, &len, RSA_SIZE, mbedtls_ctr_drbg_random, &ctr_drbg))
+                    {
+                        status = SESSION_OKAY;
+                    }
                 }
             }
         }
     }
-    delay(5000);
-    printf("Cipher printed");
-    status = client_write(cipher, 2 * RSA_SIZE);
-    if (status)
+
+    if (!client_write(cipher, 2 * RSA_SIZE))
     {
-        status = false;
+        status = SESSION_ERROR;
+    }
+
+    if (status == SESSION_OKAY)
+    {
+        status = SESSION_ERROR;
         lenght = client_read(cipher, sizeof(cipher));
+
         if (lenght == 3 * RSA_SIZE)
         {
-            if (0 == mbedtls_pk_encrypt(&server_key_ctx, cipher, RSA_SIZE, buffer, &len, RSA_SIZE, mbedtls_ctr_drbg_random, &ctr_drbg))
+            if (0 == mbedtls_pk_decrypt(&server_key_ctx, cipher, RSA_SIZE, buffer, &len, RSA_SIZE, mbedtls_ctr_drbg_random, &ctr_drbg))
             {
                 lenght = len;
-                if (0 == mbedtls_pk_encrypt(&server_key_ctx, cipher + RSA_SIZE, RSA_SIZE, buffer + lenght, &len, RSA_SIZE, mbedtls_ctr_drbg_random, &ctr_drbg))
+                if (0 == mbedtls_pk_decrypt(&server_key_ctx, cipher + RSA_SIZE, RSA_SIZE, buffer + lenght, &len, RSA_SIZE, mbedtls_ctr_drbg_random, &ctr_drbg))
                 {
                     lenght += len;
-                    if (0 == mbedtls_pk_encrypt(&server_key_ctx, cipher + 2 * RSA_SIZE, RSA_SIZE, buffer + lenght, &len, RSA_SIZE, mbedtls_ctr_drbg_random, &ctr_drbg))
+                    if (0 == mbedtls_pk_decrypt(&server_key_ctx, cipher + 2 * RSA_SIZE, RSA_SIZE, buffer + lenght, &len, RSA_SIZE, mbedtls_ctr_drbg_random, &ctr_drbg))
                     {
                         lenght += len;
                         if (lenght == DER_SIZE + RSA_SIZE)
@@ -189,7 +183,10 @@ static bool exchange_public_keys(void)
                                     if (0 == mbedtls_pk_verify(&client_key_ctx, MBEDTLS_MD_SHA256, secret_key, HASH_SIZE, buffer + DER_SIZE, RSA_SIZE))
                                     {
                                         strcpy((char *)buffer, "DONE");
-                                        status = (0 == mbedtls_pk_encrypt(&client_key_ctx, buffer, strlen((const char *)buffer), cipher, &len, RSA_SIZE, mbedtls_ctr_drbg_random, &ctr_drbg));
+                                        if (0 == mbedtls_pk_encrypt(&client_key_ctx, buffer, strlen((const char *)buffer), cipher, &len, RSA_SIZE, mbedtls_ctr_drbg_random, &ctr_drbg))
+                                        {
+                                            status = SESSION_OKAY;
+                                        }
                                     }
                                 }
                             }
@@ -199,7 +196,12 @@ static bool exchange_public_keys(void)
             }
         }
     }
-    status = client_write(cipher, RSA_SIZE);
+
+    if (!client_write(cipher, RSA_SIZE))
+    {
+        status = SESSION_ERROR;
+    }
+
     return status;
 }
 
@@ -209,10 +211,6 @@ int session_request(void)
     int request = SESSION_WARNING;
     size_t length = client_read(buffer, sizeof(buffer));
 
-    Serial.begin(115200);
-    delay(5000);
-    Serial.printf("Length: %d", length);
-    digitalWrite(21, HIGH);
     if (length == DER_SIZE)
     {
         request = exchange_public_keys();

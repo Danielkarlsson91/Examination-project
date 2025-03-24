@@ -2,7 +2,6 @@
 from communication import Communication
 # Import cryptographic functions from mbedtls library
 from mbedtls import pk, hmac, hashlib, cipher
-import time
 import struct
 
 class Session:
@@ -55,11 +54,12 @@ class Session:
         # Write public temp key
         if not self.__write(buffer):
             raise Exception("1) Failed to exchange keys")
+        
         # Read server public key <-- spara den
         buffer = self.__read(self.__RSA_SIZE * 2)
         if 0 == len(buffer):
             raise Exception("2) Failed to exchange keys")
-        print("read1")
+
         # Decrypt server public key med temp private key
         self.__serverRSA  = self.__clientRSA.decrypt(buffer[0 : self.__RSA_SIZE])
         self.__serverRSA += self.__clientRSA.decrypt(buffer[self.__RSA_SIZE : self.__RSA_SIZE * 2])
@@ -76,15 +76,14 @@ class Session:
 
         if not self.__write(buffer):
             raise Exception("3) Failed to exchange keys")
-        print("Write2")
+
         buffer = self.__read(self.__RSA_SIZE)
         if 0 == len(buffer):
             raise Exception("4) Failed to exchange keys")
-        
+
         if b"DONE" != self.__clientRSA.decrypt(buffer):
             raise Exception("5) Failed to exchange keys")
         
-        print("Key exchange")
 
     def __read(self, size) -> bytes:
         """
@@ -105,9 +104,11 @@ class Session:
             if len(buffer) > self.__hmac.digest_size:            
                 # Separate data and HMAC
                 received_hmac = buffer[size:size+self.__hmac.digest_size]
+
+                buffer = buffer[0:size]
                 
                 # Calculate HMAC for verification
-                self.__hmac.update(buffer[0:size])
+                self.__hmac.update(buffer)
                 calculated_hmac = self.__hmac.digest()
                 
                 # Verify HMAC
@@ -130,10 +131,7 @@ class Session:
             msg: Data to send
         """
         self.__hmac.update(msg)
-        print(len(msg))
         msg += self.__hmac.digest()
-        print(len(msg))
-        print(msg.hex())
         return self.communication.send(msg)
 
 
