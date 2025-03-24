@@ -1,7 +1,7 @@
-#include "communication.h"
 #include <Arduino.h>
+#include "communication.h"
 
-bool communication_init(const int comparam)
+bool communication_init(int comparam)
 {
     Serial.begin(comparam);
 

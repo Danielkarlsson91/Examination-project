@@ -22,10 +22,6 @@ class Session:
     STATUS_OKAY = 0              # Operation completed successfully
     STATUS_ERROR = 1             # General error occurred
     STATUS_EXPIRED = 2           # Session has expired
-    STATUS_HASH_ERROR = 3        # Hash verification failed
-    STATUS_BAD_REQUEST = 4       # Invalid request format
-    STATUS_INVALID_SESSION = 5   # Session is invalid
-    STATUS_CONNECTION_ERROR = 6  # Connection error occurred
 
     def __init__(self, port):
         """
@@ -59,7 +55,6 @@ class Session:
         # Write public temp key
         if not self.__write(buffer):
             raise Exception("1) Failed to exchange keys")
-
         # Read server public key <-- spara den
         buffer = self.__read(self.__RSA_SIZE * 2)
         if 0 == len(buffer):

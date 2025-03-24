@@ -8,13 +8,20 @@
 #include <mbedtls/entropy.h>
 #include <mbedtls/ctr_drbg.h>
 
+enum
+{
+    STATUS_OKAY = 0,
+    STATUS_ERROR = 1,
+    STATUS_EXPIRED = 2
+};
+
 constexpr int AES_SIZE{32};       /**< AES key size (256 bits) */
 constexpr int AES_BLOCK_SIZE{16}; /**< AES block size (128 bits) */
 constexpr int RSA_SIZE{256};      /**< RSA key size (2048 bits) */
 constexpr int DER_SIZE{294};      /**< Maximum DER encoding size */
 constexpr int HASH_SIZE{32};      /**< Hash size for HMAC (256 bits) */
 constexpr int EXPONENT{65537};
-constexpr int SESSION_TIMEOUT{3000}; /**< Session timeout in milliseconds */
+constexpr int KEEP_ALIVE{3000}; /**< Session timeout in milliseconds */
 
 // Static contexts for cryptographic operations
 static mbedtls_aes_context aes_ctx;       /**< AES Context */
@@ -25,11 +32,11 @@ static mbedtls_entropy_context entropy;   /**< Entropy Context */
 static mbedtls_ctr_drbg_context ctr_drbg; /**< CTR DRBG Context */
 
 // Session variables
-static uint32_t last_accessed = 0;
+static uint32_t accessed = 0;
 static uint64_t session_id = 0;
 static uint8_t aes_key[AES_SIZE] = {0};
-static uint8_t enc_lv[AES_BLOCK_SIZE]{0};
-static uint8_t dec_lv[AES_BLOCK_SIZE]{0};
+static uint8_t enc_iv[AES_BLOCK_SIZE]{0};
+static uint8_t dec_iv[AES_BLOCK_SIZE]{0};
 static uint8_t buffer[DER_SIZE + RSA_SIZE] = {0};
 static const uint8_t secret_key[HASH_SIZE] = {
     0x29, 0x49, 0xde, 0xc2, 0x3e, 0x1e, 0x34, 0xb5,
@@ -37,116 +44,279 @@ static const uint8_t secret_key[HASH_SIZE] = {
     0x3f, 0xe2, 0x97, 0x14, 0x24, 0x62, 0x81, 0x0c,
     0x86, 0xb1, 0xf6, 0x92, 0x54, 0xd6};
 
-// Relay state pin
-const int RELAY_PIN = 32;
-const int LED_PIN = 21;
-
 // Simple write with HMAC for key exchange
-static bool write(const uint8_t *buf, size_t dlen)
+static bool client_write(uint8_t *buf, size_t dlen)
 {
     // Calculate HMAC
-    uint8_t hmac[HASH_SIZE];
     mbedtls_md_hmac_starts(&hmac_ctx, secret_key, HASH_SIZE);
     mbedtls_md_hmac_update(&hmac_ctx, buf, dlen);
-    mbedtls_md_hmac_finish(&hmac_ctx, hmac);
-
-    // Prepare final buffer with payload and HMAC
-    uint8_t final_buf[dlen + HASH_SIZE];
-    memcpy(final_buf, buf, dlen);
-    memcpy(final_buf + dlen, hmac, HASH_SIZE);
+    mbedtls_md_hmac_finish(&hmac_ctx, buf + dlen);
 
     // Send via communication layer
-    return communication_write(final_buf, dlen + HASH_SIZE);
+    return communication_write(buf, dlen + HASH_SIZE);
 }
 
 // Simple read with HMAC verification for key exchange
-static size_t read(uint8_t *buf, size_t blen)
-{
-    size_t length = communication_read(buf, blen + HASH_SIZE);
-
-    if (length > HASH_SIZE)
-    {
-        // Separate payload and HMAC
-        size_t payload_length = length - HASH_SIZE;
-        uint8_t received_hmac[HASH_SIZE];
-        memcpy(received_hmac, buf + payload_length, HASH_SIZE);
-
-        // Calculate HMAC of payload
-        uint8_t calculated_hmac[HASH_SIZE];
-        mbedtls_md_hmac_starts(&hmac_ctx, secret_key, HASH_SIZE);
-        mbedtls_md_hmac_update(&hmac_ctx, buf, payload_length);
-        mbedtls_md_hmac_finish(&hmac_ctx, calculated_hmac);
-
-        // Verify HMAC
-        if (memcmp(received_hmac, calculated_hmac, HASH_SIZE) == 0)
-        {
-            return payload_length;
-        }
-
-        delay(5000);
-        printf("Received hmac\n");
-        for (int i = 0; i < HASH_SIZE; i++)
-        {
-            printf("%.2X ", received_hmac[i]);
-        }
-
-        Serial.printf("\ncalculated hmac\n");
-
-        for (int i = 0; i < HASH_SIZE; i++)
-        {
-            printf("%.2X ", calculated_hmac[i]);
-        }
-        printf("\nlength = %d\n", length);
-
-        for (int i = 0; i < length; i++)
-        {
-            printf("%.2X ", buf[i]);
-        }
-        // HMAC verification failed
-        return 0;
-    }
-
-    return 0;
-}
-
-// Client read with HMAC verification
 static size_t client_read(uint8_t *buf, size_t blen)
 {
-    size_t length = communication_read(buf, blen + HASH_SIZE);
+    size_t length = communication_read(buf, blen);
 
     if (length > HASH_SIZE)
     {
-        // Separate payload and HMAC
-        size_t payload_length = length - HASH_SIZE;
-        uint8_t received_hmac[HASH_SIZE];
-        memcpy(received_hmac, buf + payload_length, HASH_SIZE);
-
-        // Calculate HMAC of payload
-        uint8_t calculated_hmac[HASH_SIZE];
+        length -= HASH_SIZE;
+        uint8_t hmac[HASH_SIZE]{0};
         mbedtls_md_hmac_starts(&hmac_ctx, secret_key, HASH_SIZE);
-        mbedtls_md_hmac_update(&hmac_ctx, buf, payload_length);
-        mbedtls_md_hmac_finish(&hmac_ctx, calculated_hmac);
+        mbedtls_md_hmac_update(&hmac_ctx, buf, length);
+        mbedtls_md_hmac_finish(&hmac_ctx, hmac);
 
-        // Verify HMAC
-        if (memcmp(received_hmac, calculated_hmac, HASH_SIZE) == 0)
+        delay(5000);
+        Serial.printf("Hmac\n");
+        for (int i = 0; i < HASH_SIZE; i++)
         {
-            // Decrypt payload if needed
-            mbedtls_aes_setkey_dec(&aes_ctx, aes_key, AES_SIZE * 8);
-            mbedtls_aes_crypt_cbc(&aes_ctx, MBEDTLS_AES_DECRYPT, payload_length,
-                                  dec_lv, buf, buf);
-
-            // Copy decrypted payload to output buffer
-            memcpy(buf, buf, payload_length);
-            return payload_length;
+            Serial.printf("%.2X ", hmac[i]);
+            Serial.printf("-");
         }
+        printf("\n");
 
-        // HMAC verification failed
-        return 0;
+        for (int i = 0; i < HASH_SIZE; i++)
+        {
+            Serial.printf("%.2X ", buf[i + length]);
+            Serial.printf("-");
+        }
+        if (0 != memcmp(buf + length, hmac, HASH_SIZE))
+        {
+            length = 0;
+        }
     }
 
-    return 0;
+    return length;
 }
 
+static int session_write(const uint8_t *res, size_t size)
+{
+    int status = SESSION_WARNING;
+    uint8_t response[AES_BLOCK_SIZE] = {0};
+    uint8_t cipher[AES_BLOCK_SIZE + HASH_SIZE] = {0};
+
+    memcpy(response, res, size);
+
+    if (0 == mbedtls_aes_crypt_cbc(&aes_ctx, MBEDTLS_AES_ENCRYPT, sizeof(response), enc_iv, response, cipher))
+    {
+        status = client_write(cipher, AES_BLOCK_SIZE) ? SESSION_OKAY : SESSION_ERROR;
+    }
+
+    return status;
+}
+
+int session_init(int comparam)
+{
+    int status = SESSION_ERROR;
+    if (communication_init(comparam))
+    {
+        mbedtls_entropy_init(&entropy);
+        mbedtls_ctr_drbg_init(&ctr_drbg);
+        for (size_t i = 0; i < sizeof(aes_key); i++)
+        {
+            aes_key[i] = random(256);
+        }
+        if (mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy, aes_key, sizeof(aes_key)) == 0)
+        {
+            mbedtls_md_init(&hmac_ctx);
+            if (mbedtls_md_setup(&hmac_ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1) == 0)
+            {
+                mbedtls_aes_init(&aes_ctx);
+                mbedtls_pk_init(&server_key_ctx);
+                if (mbedtls_pk_setup(&server_key_ctx, mbedtls_pk_info_from_type(MBEDTLS_PK_RSA)) == 0)
+                {
+                    if (mbedtls_rsa_gen_key(mbedtls_pk_rsa(server_key_ctx), mbedtls_ctr_drbg_random,
+                                            &ctr_drbg, RSA_SIZE * 8, EXPONENT) == 0)
+                    {
+                        status = SESSION_OKAY;
+                    }
+                }
+            }
+        }
+    }
+
+    return status;
+}
+
+static bool exchange_public_keys(void)
+{
+    size_t len, lenght;
+    bool status = false;
+    uint8_t cipher[3 * RSA_SIZE + HASH_SIZE] = {0};
+    session_id = 0;
+    mbedtls_pk_init(&client_key_ctx);
+    if (0 == mbedtls_pk_parse_public_key(&client_key_ctx, buffer, DER_SIZE))
+    {
+        if (MBEDTLS_PK_RSA == mbedtls_pk_get_type(&client_key_ctx))
+        {
+            if (DER_SIZE == mbedtls_pk_write_pubkey_der(&server_key_ctx, buffer, DER_SIZE))
+            {
+                if (0 == mbedtls_pk_encrypt(&client_key_ctx, buffer, DER_SIZE / 2, cipher, &len, RSA_SIZE, mbedtls_ctr_drbg_random, &ctr_drbg))
+                {
+                    status = (0 == mbedtls_pk_encrypt(&client_key_ctx, buffer + DER_SIZE / 2, DER_SIZE / 2, cipher + RSA_SIZE, &len, RSA_SIZE, mbedtls_ctr_drbg_random, &ctr_drbg));
+                }
+            }
+        }
+    }
+    delay(5000);
+    printf("Cipher printed");
+    status = client_write(cipher, 2 * RSA_SIZE);
+    if (status)
+    {
+        status = false;
+        lenght = client_read(cipher, sizeof(cipher));
+        if (lenght == 3 * RSA_SIZE)
+        {
+            if (0 == mbedtls_pk_encrypt(&server_key_ctx, cipher, RSA_SIZE, buffer, &len, RSA_SIZE, mbedtls_ctr_drbg_random, &ctr_drbg))
+            {
+                lenght = len;
+                if (0 == mbedtls_pk_encrypt(&server_key_ctx, cipher + RSA_SIZE, RSA_SIZE, buffer + lenght, &len, RSA_SIZE, mbedtls_ctr_drbg_random, &ctr_drbg))
+                {
+                    lenght += len;
+                    if (0 == mbedtls_pk_encrypt(&server_key_ctx, cipher + 2 * RSA_SIZE, RSA_SIZE, buffer + lenght, &len, RSA_SIZE, mbedtls_ctr_drbg_random, &ctr_drbg))
+                    {
+                        lenght += len;
+                        if (lenght == DER_SIZE + RSA_SIZE)
+                        {
+                            mbedtls_pk_init(&client_key_ctx);
+                            if (0 == mbedtls_pk_parse_public_key(&client_key_ctx, buffer, DER_SIZE))
+                            {
+                                if (MBEDTLS_PK_RSA == mbedtls_pk_get_type(&client_key_ctx))
+                                {
+                                    if (0 == mbedtls_pk_verify(&client_key_ctx, MBEDTLS_MD_SHA256, secret_key, HASH_SIZE, buffer + DER_SIZE, RSA_SIZE))
+                                    {
+                                        strcpy((char *)buffer, "DONE");
+                                        status = (0 == mbedtls_pk_encrypt(&client_key_ctx, buffer, strlen((const char *)buffer), cipher, &len, RSA_SIZE, mbedtls_ctr_drbg_random, &ctr_drbg));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    status = client_write(cipher, RSA_SIZE);
+    return status;
+}
+
+int session_request(void)
+{
+    uint8_t status = STATUS_OKAY;
+    int request = SESSION_WARNING;
+    size_t length = client_read(buffer, sizeof(buffer));
+
+    Serial.begin(115200);
+    delay(5000);
+    Serial.printf("Length: %d", length);
+    digitalWrite(21, HIGH);
+    if (length == DER_SIZE)
+    {
+        request = exchange_public_keys();
+    }
+    else if (length == 2 * RSA_SIZE)
+    {
+        request = SESSION_ESTABLISH;
+    }
+    else if (length == AES_BLOCK_SIZE)
+    {
+        if (session_id != 0)
+        {
+            uint32_t now = millis();
+            if (now - accessed <= KEEP_ALIVE)
+            {
+                accessed = now;
+                uint8_t temp[AES_BLOCK_SIZE]{0};
+                if (0 == mbedtls_aes_crypt_cbc(&aes_ctx, MBEDTLS_AES_DECRYPT, AES_BLOCK_SIZE, dec_iv, buffer, temp))
+                {
+                    if (temp[AES_BLOCK_SIZE - 1] == (sizeof(status) + sizeof(session_id)))
+                    {
+                        if (0 == memcmp(&session_id, &temp[1], sizeof(session_id)))
+                        {
+                            switch (temp[0])
+                            {
+                            case SESSION_CLOSE:
+                            case SESSION_GET_TEMP:
+                            case SESSION_TOGGLE_RELAY:
+                                request = temp[0];
+                                break;
+                            default:
+                                status = STATUS_ERROR;
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            status = STATUS_ERROR;
+                        }
+                    }
+                    else
+                    {
+                        status = STATUS_ERROR;
+                    }
+                }
+                else
+                {
+                    status = STATUS_ERROR;
+                }
+            }
+            else
+            {
+                session_id = 0;
+                status = STATUS_EXPIRED;
+            }
+        }
+        else
+        {
+            status = STATUS_ERROR;
+        }
+    }
+    else
+    {
+        status = STATUS_ERROR;
+    }
+
+    if (request == SESSION_WARNING)
+    {
+        request = session_write(&status, sizeof(status));
+        if (request == SESSION_OKAY)
+        {
+            request = SESSION_WARNING;
+        }
+    }
+
+    return request;
+}
+
+int session_establish(void)
+{
+    return SESSION_ERROR;
+}
+
+int session_close(void)
+{
+    return SESSION_ERROR;
+}
+
+int session_send_error(void)
+{
+    return SESSION_ERROR;
+}
+
+int session_send_temperature(float temp)
+{
+    return SESSION_ERROR;
+}
+
+int session_send_relay_state(uint8_t state)
+{
+    return SESSION_ERROR;
+}
+
+#if 0
 // Client write with HMAC generation
 static bool client_write(uint8_t *buf, size_t dlen)
 {
@@ -537,3 +707,4 @@ int session_send_relay_state(uint8_t state)
     uint8_t buf[2] = {SESSION_OKAY, state};
     return session_write(buf, sizeof(buf));
 }
+#endif

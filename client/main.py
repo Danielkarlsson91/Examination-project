@@ -139,7 +139,7 @@ class ClientGui(QMainWindow):
 
             # Create new session
             self.session = Session(port)
-            
+            print("Session initialized")
             # Update UI
             self.connection_status.setText(f"Connected to {port}")
             self.connection_status.setStyleSheet("color: green; font-weight: bold;")

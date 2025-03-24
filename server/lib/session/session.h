@@ -24,7 +24,7 @@ int session_establish(void);
 
 int session_send_error(void);
 
-int session_init(const int comparam);
+int session_init(int comparam);
 
 int session_send_temperature(float temp);
 
